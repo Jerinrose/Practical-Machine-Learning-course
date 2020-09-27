@@ -1,0 +1,168 @@
+---
+title: "Practical Machine Learning-Course Project"
+author: "Jerin Rose"
+date: "9/26/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.It contains report describing how I built my model, how I used cross validation, and the expected out of sample error is.
+
+## How the model was built
+
+Our outcome variable is 'classe', a factor variable with 5 levels. For this data set, **“participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different fashions"**
+
+ - exactly according to the specification (Class A)
+
+ - throwing the elbows to the front (Class B)
+
+ - lifting the dumbbell only halfway (Class C)
+
+ - lowering the dumbbell only halfway (Class D)
+
+ - throwing the hips to the front (Class E)
+
+All available variables after cleaning will be used for prediction. Two models will be tested using decision tree and random forest algorithms. The model with the highest accuracy will be chosen as our final model.
+
+## Cross validation
+
+Cross-validation will be performed by subsampling our training data set randomly without replacement into 2 subsamples: subTraining data (75% of the original Training data set) and subTesting data (25%).After the most accurate model is choosen, it will be tested on the original Testing data set.\
+
+## Data loading and preprocessing
+
+```{r}
+library(caret)
+library(RColorBrewer)
+library(rattle)
+library(knitr)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+
+Trainurl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+Testurl  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+
+training <- read.csv(url(Trainurl))
+testing  <- read.csv(url(Testurl))
+
+# create a partition with the training dataset 
+inTrain  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+Trainset <- training[inTrain, ]
+Testset  <- training[-inTrain, ]
+```
+
+## Data cleaning
+
+```{r}
+dim(Trainset)
+dim(Testset)
+```
+
+So we can see both the sets have 160 variables and they contain NA values so we need to remove it.
+
+```{r}
+zerovar <- nearZeroVar(Trainset)
+Trainset <- Trainset[, -zerovar]
+Testset  <- Testset[, -zerovar]
+dim(Trainset)
+dim(Testset)
+```
+
+So now remove the NA values
+
+```{r}
+AllNA    <- sapply(Trainset, function(x) mean(is.na(x))) > 0.95
+Trainset <- Trainset[, AllNA==FALSE]
+Testset  <- Testset[, AllNA==FALSE]
+Trainset <- Trainset[, -(1:5)]
+Testset  <- Testset[, -(1:5)]
+dim(Trainset)
+dim(Testset)
+```
+
+So after cleaning we have reduced the variables.
+
+## Correlation Analysis
+
+```{r}
+cormatrix <- cor(Trainset[, -54])
+corrplot(cormatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+In the graph above highly correlated variables are shown in dark colors
+
+## Model Building
+
+### Random Forest
+
+```{r}
+# Fitting the model
+set.seed(12345)
+controlrf <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modfitRandForest <- train(classe ~ ., data=Trainset, method="rf",trControl=controlrf)
+                          
+modfitRandForest$finalModel
+# Prediction on Test dataset
+predictRandForest <- predict(modfitRandForest, newdata=Testset)
+confRandForest <- confusionMatrix(predictRandForest, as.factor(Testset$classe))
+confRandForest
+# Plotting matrix results
+plot(confRandForest$table, col = confRandForest$byClass,main = paste("Random Forest - Accuracy =",round(confRandForest$overall['Accuracy'], 4)))
+   
+```
+
+### Decision Tree
+
+```{r}
+# Fitting the model
+set.seed(12345)
+modfitdeTree <- rpart(classe ~ ., data=Trainset, method="class")
+fancyRpartPlot(modfitdeTree)
+# Prediction on Test dataset
+predictdeTree <- predict(modfitdeTree, newdata=Testset, type="class")
+confdeTree <- confusionMatrix(predictdeTree, as.factor(Testset$classe))
+confdeTree
+# Plotting matrix results
+plot(confdeTree$table, col = confdeTree$byClass,main = paste("Decision Tree - Accuracy =",
+     round(confdeTree$overall['Accuracy'], 4)))
+```
+
+### Generalized Boosted Model
+
+```{r}
+# Fitting the model
+set.seed(12345)
+controlGbm <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modfitGbm  <- train(classe ~ ., data=Trainset, method = "gbm",
+                    trControl = controlGbm, verbose = FALSE)
+modfitGbm$finalModel
+# Prediction on Test dataset
+predictGbm <- predict(modfitGbm, newdata=Testset)
+confmatGbm <- confusionMatrix(predictGbm, as.factor(Testset$classe))
+confmatGbm
+# plot matrix results
+plot(confmatGbm$table, col = confmatGbm$byClass, 
+     main = paste("GBM - Accuracy =", round(confmatGbm$overall['Accuracy'], 4)))
+```
+
+The accuracy rate using the random forest is very high,Accuracy=0.9963 and therefore the out of sample error is equal to 0.0264
+
+## Taking the best model and applying the data
+
+So from the above three models we will be using Random Forest to the 20 quiz results.
+
+```{r}
+results <- predict(modfitRandForest, newdata=testing)
+results
+```
+
